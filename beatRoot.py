@@ -92,7 +92,7 @@ class beatRoot:
                        "exercise": [(100, 165), (0.8, 1.0), (0.8, 1.0)]}
         
 
-        self.sample_rate = 10
+        self.sample_rate = 40
         self.sensor_thread = threading.Thread(target=self.read_serial, daemon=True)
         self.sensor_thread.start()
 
@@ -111,7 +111,7 @@ class beatRoot:
         """read data from serial connection to arduino"""
         start = time.time()
         while True:
-            if int(time.time() - start) % self.sample_rate:
+            if not int(time.time() - start) % self.sample_rate:
                 if self.song_entry.get() != "" and self.activity_entry.get() != "":
                     self.generate_playlist()
             try:
