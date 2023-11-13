@@ -9,28 +9,41 @@ import statistics
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import client_data
+# client data is external python file for spotify authentication with
+# ID='id'
+# SECRET='secret'
+# URI='uri'
 
 
 class beatRoot:
-    def __init__(self, root, ser):
+    def __init__(self, root, port=None):
         self.root = root
         self.root.title("beatRoot")
         self.root.configure(background='#d9d9d9')
-        self.ser = ser
+        if port is not None:
+            try:
+                self.ser = serial.Serial(port, 9600, timeout=0.1)
+            except serial.SerialException as e:
+                print(e, "\nCheck that the pulse sensor is plugged into the port at", port, "\nDefaulting to no sensor")
+                self.ser = None
+            
+        else:
+            self.ser = None
         self.sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=client_data.ID,
                                                             client_secret=client_data.SECRET,
                                                             redirect_uri=client_data.URI,
                                                             scope='user-read-playback-state,user-modify-playback-state'))
 
         # create ui elements
-        self.logo = ImageTk.PhotoImage(Image.open("./beatroot.png").resize((586, 511)))
+        self.logo = ImageTk.PhotoImage(Image.open("./images/beatroot.png").resize((586, 511)))
         self.logo_label = tk.Label(root, image=self.logo)
 
         self.manual_heart = tk.BooleanVar()
-        self.heart_check = tk.Checkbutton(root, text="Enter Heartrate", command=self.enable_manual_in, variable=self.manual_heart)
-        self.heart_entry = tk.Entry(root, state=tk.DISABLED)
-        self.sensor_label = tk.Label(text="Sensor: ")
-        self.heartrate_monitor = tk.Label(text="")
+        self.sensor_check = tk.Checkbutton(root, text="Sense Heartrate:", command=self.disable_manual_in, variable=self.manual_heart, state=tk.NORMAL if self.ser is not None else tk.DISABLED)
+        self.heartrate_monitor = tk.Label(text="" if self.ser is not None else "No sensor detected")
+
+        self.heart_label = tk.Label(text="Enter Heartrate:")
+        self.heart_entry = tk.Entry(root)
 
         self.song_label = tk.Label(root, text="Enter Song:")
         self.song_entry = tk.Entry(root)
@@ -48,19 +61,19 @@ class beatRoot:
 
         self.result_label = tk.Label(root, text="")
 
-        # media control
-        self.play_img = ImageTk.PhotoImage(Image.open("./play.png").resize((100,114)))
-        self.skip_img = ImageTk.PhotoImage(Image.open("./skip.png").resize((162,114)))
-        self.rewind_img = ImageTk.PhotoImage(Image.open("./rewind.png").resize((162,114)))
+        # media control buttons
+        self.play_img = ImageTk.PhotoImage(Image.open("./images/play.png").resize((100,114)))
+        self.skip_img = ImageTk.PhotoImage(Image.open("./images/skip.png").resize((162,114)))
+        self.rewind_img = ImageTk.PhotoImage(Image.open("./images/rewind.png").resize((162,114)))
         self.play_button = tk.Button(root, image=self.play_img, command=self.play_song)
         self.skip_button = tk.Button(root, image=self.skip_img, command=self.skip_song)
         self.rewind_button = tk.Button(root, image=self.rewind_img, command=self.rewind_song)
 
         # grid display
         self.logo_label.grid(row=0, column=2, columnspan=2, padx=5, pady=25)
-        self.sensor_label.grid(row=1, column=2, padx=5, pady=5, sticky='e')
+        self.sensor_check.grid(row=1, column=2, padx=5, pady=5, sticky='e')
         self.heartrate_monitor.grid(row=1, column=3, padx=5, pady=5, sticky='w')
-        self.heart_check.grid(row=2, column=2, padx=5, pady=5, sticky='e')
+        self.heart_label.grid(row=2, column=2, padx=5, pady=5, sticky='e')
         self.heart_entry.grid(row=2, column=3, padx=5, pady=5)
         self.song_label.grid(row=3, column=2, padx=5, pady=5, sticky="e")
         self.song_entry.grid(row=3, column=3, padx=5, pady=5)
@@ -93,15 +106,16 @@ class beatRoot:
         
 
         self.sample_rate = 40
-        self.sensor_thread = threading.Thread(target=self.read_serial, daemon=True)
-        self.sensor_thread.start()
+        if self.ser is not None:
+            self.sensor_thread = threading.Thread(target=self.read_serial, daemon=True)
+            self.sensor_thread.start()
 
-    def enable_manual_in(self):
+    def disable_manual_in(self):
         """enables text entry box for heart rate"""
         if self.manual_heart.get():
-            self.heart_entry.config(state=tk.NORMAL)
-        else:
             self.heart_entry.config(state=tk.DISABLED)
+        else:
+            self.heart_entry.config(state=tk.NORMAL)
 
     def update_heartrate_text(self):
         """updates ui with the sensor reading"""
@@ -112,7 +126,7 @@ class beatRoot:
         start = time.time()
         while True:
             if not int(time.time() - start) % self.sample_rate:
-                if self.song_entry.get() != "" and self.activity_entry.get() != "":
+                if self.song_entry.get() != "" and self.activity_entry.get() != "" and self.heartrate > 40:
                     self.generate_playlist()
             try:
                 data = self.ser.readline().decode().strip()
@@ -122,7 +136,6 @@ class beatRoot:
                     if self.check_hist(data):
                         self.heartrate = data
                         self.root.after(100, self.update_heartrate_text)
-                        # print(self.heartrate)
 
             except UnicodeDecodeError as e:
                 print(f"Error decoding data: {e}")
@@ -149,7 +162,6 @@ class beatRoot:
         genre = self.genre_entry.get()
         if self.manual_heart.get():
             self.heartrate = int(self.heart_entry.get())
-        # print(bpm)
 
         if not song or not activity:
             messagebox.showerror("Invalid Input", "Please fill in song and activity")
@@ -243,9 +255,8 @@ class beatRoot:
 
 if __name__ == "__main__":
     try:
-        ser = serial.Serial("/dev/ttyACM0", 9600, timeout=0.1)
         root = tk.Tk()
-        beat = beatRoot(root, ser)
+        beat = beatRoot(root, "/dev/ttyACM0")
         root.mainloop()
     except serial.serialutil.SerialException as e:
         print(e)
